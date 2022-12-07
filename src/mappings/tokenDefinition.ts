@@ -4,6 +4,7 @@ import {
 } from "@graphprotocol/graph-ts"
 
 // Initialize a Token Definition with the attributes
+// 用属性初始化一个Token定义
 export class TokenDefinition {
   address : Address
   symbol: string
@@ -11,6 +12,7 @@ export class TokenDefinition {
   decimals: BigInt
 
   // Initialize a Token Definition with its attributes
+  // 用属性初始化一个Token定义
   constructor(address: Address, symbol: string, name: string, decimals: BigInt) {
     this.address = address
     this.symbol = symbol
@@ -19,17 +21,18 @@ export class TokenDefinition {
   }
 
   // Get all tokens with a static defintion
+  // 获取所有静态定义的tokens，包括6个tokens: DGD,AAVE,LIF,SVD,TheDAO,HPB
   static getStaticDefinitions(): Array<TokenDefinition> {
-    let staticDefinitions = new Array<TokenDefinition>(6)
+    let staticDefinitions = new Array<TokenDefinition>(6) // 固定长度为6,写死
 
     // Add DGD
     let tokenDGD = new TokenDefinition(
-      Address.fromString('0xe0b7927c4af23765cb51314a0e0521a9645f0e2a'),
+      Address.fromString('0xe0b7927c4af23765cb51314a0e0521a9645f0e2a'), // 主网上合约地址
       'DGD',
       'DGD',
       BigInt.fromI32(9)
     )
-    staticDefinitions.push(tokenDGD)
+    staticDefinitions.push(tokenDGD) // 添加到TokenDefinition数组中
 
     // Add AAVE
     let tokenAAVE = new TokenDefinition(
@@ -38,7 +41,7 @@ export class TokenDefinition {
       'Aave Token',
       BigInt.fromI32(18)
     )
-    staticDefinitions.push(tokenAAVE)
+    staticDefinitions.push(tokenAAVE) // 添加到TokenDefinition数组中
 
     // Add LIF
     let tokenLIF = new TokenDefinition(
@@ -47,7 +50,7 @@ export class TokenDefinition {
       'Lif',
       BigInt.fromI32(18)
     )
-    staticDefinitions.push(tokenLIF)
+    staticDefinitions.push(tokenLIF) // 添加到TokenDefinition数组中
 
     // Add SVD
     let tokenSVD = new TokenDefinition(
@@ -56,7 +59,7 @@ export class TokenDefinition {
       'savedroid',
       BigInt.fromI32(18)
     )
-    staticDefinitions.push(tokenSVD)
+    staticDefinitions.push(tokenSVD) // 添加到TokenDefinition数组中
 
     // Add TheDAO
     let tokenTheDAO = new TokenDefinition(
@@ -65,7 +68,7 @@ export class TokenDefinition {
       'TheDAO',
       BigInt.fromI32(16)
     )
-    staticDefinitions.push(tokenTheDAO)
+    staticDefinitions.push(tokenTheDAO) // 添加到TokenDefinition数组中
 
     // Add HPB
     let tokenHPB = new TokenDefinition(
@@ -74,17 +77,20 @@ export class TokenDefinition {
       'HPBCoin',
       BigInt.fromI32(18)
     )
-    staticDefinitions.push(tokenHPB)
+    staticDefinitions.push(tokenHPB) // 添加到TokenDefinition数组中
 
     return staticDefinitions
   }
 
   // Helper for hardcoded tokens
   static fromAddress(tokenAddress: Address) : TokenDefinition | null {
+    // 获取所有静态定义的tokens，包括6个tokens: DGD,AAVE,LIF,SVD,TheDAO,HPB
     let staticDefinitions = this.getStaticDefinitions()
+    // Address类型转换为HexString类型
     let tokenAddressHex = tokenAddress.toHexString()
 
     // Search the definition using the address
+    // 如果是DGD,AAVE,LIF,SVD,TheDAO,HPB其中之一，就返回其TokenDefinition
     for (let i = 0; i < staticDefinitions.length; i++) {
       let staticDefinition = staticDefinitions[i]
       if(staticDefinition.address.toHexString() == tokenAddressHex) {
@@ -93,6 +99,7 @@ export class TokenDefinition {
     }
 
     // If not found, return null
+    // 如果没有找到，就返回null
     return null
   }
 

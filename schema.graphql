@@ -1,64 +1,67 @@
 type UniswapFactory @entity {
-  # factory address
+  # factory address 工厂合约地址用作唯一ID
   id: ID!
 
-  # pair info
+  # pair info 工厂合约创建的pair合约的个数
   pairCount: Int!
 
-  # total volume
+  # total volume 总交易量
   totalVolumeUSD: BigDecimal!
   totalVolumeETH: BigDecimal!
 
-  # untracked values - less confident USD scores
+  # untracked values - less confident USD scores 未追踪的价值-缺乏信心的USD scores
   untrackedVolumeUSD: BigDecimal!
 
-  # total liquidity
+  # total liquidity 总流动性
   totalLiquidityUSD: BigDecimal!
   totalLiquidityETH: BigDecimal!
 
-  # transactions
+  # transactions 区块链交易数量
   txCount: BigInt!
 }
 
+# 用于表示token0和token1
 type Token @entity {
-  # token address
+  # token address token地址
   id: ID!
 
-  # mirrored from the smart contract
+  # mirrored from the smart contract 从智能合约获取
   symbol: String!
   name: String!
   decimals: BigInt!
 
-  # used for other stats like marketcap
+  # used for other stats like marketcap 用于其他数据，如市值
   totalSupply: BigInt!
 
-  # token specific volume
-  tradeVolume: BigDecimal!
-  tradeVolumeUSD: BigDecimal!
-  untrackedVolumeUSD: BigDecimal!
+  # token specific volume 该token的交易量
+  tradeVolume: BigDecimal! # token交易量
+  tradeVolumeUSD: BigDecimal! # token交易量，以USD计价
+  untrackedVolumeUSD: BigDecimal! # 未跟踪的交易量，以USD计价
 
-  # transactions across all pairs
+  # transactions across all pairs 跨所有pairs的交易数量
   txCount: BigInt!
 
-  # liquidity across all pairs
+  # liquidity across all pairs 跨所有pairs的流动性数量
   totalLiquidity: BigDecimal!
 
-  # derived prices
+  # derived prices TODO
   derivedETH: BigDecimal
 
   # derived fields
-  tokenDayData: [TokenDayData!]! @derivedFrom(field: "token")
-  pairDayDataBase: [PairDayData!]! @derivedFrom(field: "token0")
-  pairDayDataQuote: [PairDayData!]! @derivedFrom(field: "token1")
-  pairBase: [Pair!]! @derivedFrom(field: "token0")
-  pairQuote: [Pair!]! @derivedFrom(field: "token1")
+  tokenDayData: [TokenDayData!]! @derivedFrom(field: "token") # 来源于TokenDayData
+  pairDayDataBase: [PairDayData!]! @derivedFrom(field: "token0") # 来源于PairDayData，token0是base
+  pairDayDataQuote: [PairDayData!]! @derivedFrom(field: "token1") # 来源于PairDayData，token1是quote
+  pairBase: [Pair!]! @derivedFrom(field: "token0") # 来源于Pair
+  pairQuote: [Pair!]! @derivedFrom(field: "token1") # 来源于Pair
 }
 
 type Pair @entity {
   # pair address
+  # pair地址作为唯一键
   id: ID!
 
   # mirrored from the smart contract
+  # 从智能合约获取
   token0: Token!
   token1: Token!
   reserve0: BigDecimal!
@@ -72,19 +75,21 @@ type Pair @entity {
   trackedReserveETH: BigDecimal!
 
   # Price in terms of the asset pair
-  token0Price: BigDecimal!
-  token1Price: BigDecimal!
+  token0Price: BigDecimal! # token0价格
+  token1Price: BigDecimal! # token1价格
 
   # lifetime volume stats
-  volumeToken0: BigDecimal!
-  volumeToken1: BigDecimal!
-  volumeUSD: BigDecimal!
+  # 生命周期交易量统计
+  volumeToken0: BigDecimal! # token0交易量
+  volumeToken1: BigDecimal! # token0交易量
+  volumeUSD: BigDecimal! # 以USD计价的交易量
   untrackedVolumeUSD: BigDecimal!
-  txCount: BigInt!
+  txCount: BigInt! # 区块链交易数量
 
   # creation stats
-  createdAtTimestamp: BigInt!
-  createdAtBlockNumber: BigInt!
+  # pair合约创建统计
+  createdAtTimestamp: BigInt! # 合约创建时间
+  createdAtBlockNumber: BigInt! # 合约在哪个区块创建
 
   # Fields used to help derived relationship
   liquidityProviderCount: BigInt! # used to detect new exchanges
@@ -128,11 +133,12 @@ type LiquidityPositionSnapshot @entity {
 }
 
 type Transaction @entity {
-  id: ID! # txn hash
-  blockNumber: BigInt!
-  timestamp: BigInt!
+  id: ID! # txn hash 交易哈希
+  blockNumber: BigInt! 区块号
+  timestamp: BigInt! 时间戳
   # This is not the reverse of Mint.transaction; it is only used to
   # track incomplete mints (similar for burns and swaps)
+  # 这并不是Mint.transaction的反向;它只用于跟踪未完成的mints,burns,swaps
   mints: [Mint]!
   burns: [Burn]!
   swaps: [Swap]!
@@ -213,7 +219,7 @@ type Swap @entity {
 # stores for USD calculations
 type Bundle @entity {
   id: ID!
-  ethPrice: BigDecimal! # price of ETH usd
+  ethPrice: BigDecimal! # price of ETH usd ETH的价格
 }
 
 # Data accumulated and condensed into day stats for all of Uniswap
