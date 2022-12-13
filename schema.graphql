@@ -44,7 +44,8 @@ type Token @entity {
   # liquidity across all pairs 跨所有pairs的流动性数量
   totalLiquidity: BigDecimal!
 
-  # derived prices TODO
+  # derived prices
+  # 每个token值多少ETH
   derivedETH: BigDecimal
 
   # derived fields
@@ -72,11 +73,12 @@ type Pair @entity {
   reserveETH: BigDecimal!
   reserveUSD: BigDecimal!
   # used for separating per pair reserves and global
+  # 用于分离每个pair的储备和全局
   trackedReserveETH: BigDecimal!
 
   # Price in terms of the asset pair
-  token0Price: BigDecimal! # token0价格
-  token1Price: BigDecimal! # token1价格
+  token0Price: BigDecimal! # token1的价格，注意，此处是反的
+  token1Price: BigDecimal! # token0的价格
 
   # lifetime volume stats
   # 生命周期交易量统计
@@ -223,19 +225,28 @@ type Bundle @entity {
 }
 
 # Data accumulated and condensed into day stats for all of Uniswap
+# 所有Uniswap的数据累积并压缩成日统计数据
 type UniswapDayData @entity {
   id: ID! # timestamp rounded to current day by dividing by 86400
   date: Int!
 
+  # 日交易量，以ETH计价
   dailyVolumeETH: BigDecimal!
+  # 日交易量，以USD计价
   dailyVolumeUSD: BigDecimal!
+  # 未跟踪日交易量
   dailyVolumeUntracked: BigDecimal!
 
+  # 总交易量，以ETH计价
   totalVolumeETH: BigDecimal!
+  # 总流动性价值，以ETH计价
   totalLiquidityETH: BigDecimal!
+  # 在每笔交易中累积，而不是仅仅计算出totalVolume。使它更准确，因为它是一个实时转换
   totalVolumeUSD: BigDecimal! # Accumulate at each trade, not just calculated off whatever totalVolume is. making it more accurate as it is a live conversion
+  # 总流动性价值，以USD计价
   totalLiquidityUSD: BigDecimal!
 
+  # 交易数量
   txCount: BigInt!
 }
 
@@ -262,6 +273,7 @@ type PairHourData @entity {
 }
 
 # Data accumulated and condensed into day stats for each exchange
+# 数据累积并浓缩为每个交易所的日统计数据
 type PairDayData @entity {
   id: ID!
   date: Int!
@@ -274,15 +286,19 @@ type PairDayData @entity {
   reserve1: BigDecimal!
 
   # total supply for LP historical returns
+  # LP历史returns的总供应量
   totalSupply: BigDecimal!
 
   # derived liquidity
+  # 衍生流动性，以USD计价
   reserveUSD: BigDecimal!
 
   # volume stats
+  # 交易量统计数据
   dailyVolumeToken0: BigDecimal!
   dailyVolumeToken1: BigDecimal!
   dailyVolumeUSD: BigDecimal!
+  # 日交易笔数
   dailyTxns: BigInt!
 }
 

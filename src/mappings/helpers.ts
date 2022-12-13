@@ -181,7 +181,7 @@ export function createUser(address: Address): void {
 }
 
 // 创建id为“Pair地址-User地址，再加上时间戳”的流动性快照
-export function createLiquiditySnapshot(position: LiquidityPosition, event: EthereumEvent): void {//TODO
+export function createLiquiditySnapshot(position: LiquidityPosition, event: EthereumEvent): void {
   let timestamp = event.block.timestamp.toI32() // 区块时间
   let bundle = Bundle.load('1')
   let pair = Pair.load(position.pair) // 用pair合约地址加载Pair entity

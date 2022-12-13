@@ -203,7 +203,7 @@ export function handleTransfer(event: Transfer): void {
 
     // if this logical burn included a fee mint, account for this
     // 如果最后一个mints的sender是null，即没有设置，则进入if。这个适用于feeOn开启的情况，会在添加流动性和移除流动性的时候都调用pair合约的_mint，给feeTo铸造LP tokens
-    if (mints.length !== 0 && !isCompleteMint(mints[mints.length - 1])) {//TODO
+    if (mints.length !== 0 && !isCompleteMint(mints[mints.length - 1])) {
       let mint = MintEvent.load(mints[mints.length - 1])
       burn.feeTo = mint.to // fee给谁
       burn.feeLiquidity = mint.liquidity // fee对应的liquidity
@@ -260,50 +260,67 @@ export function handleTransfer(event: Transfer): void {
   transaction.save()
 }
 
+// 处理 Sync(uint112,uint112)
 export function handleSync(event: Sync): void {
-  let pair = Pair.load(event.address.toHex())
-  let token0 = Token.load(pair.token0)
-  let token1 = Token.load(pair.token1)
-  let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
+  let pair = Pair.load(event.address.toHex()) // 加载pair合约entity
+  let token0 = Token.load(pair.token0) // 加载token0 entity
+  let token1 = Token.load(pair.token1) // 加载token1 entity
+  let uniswap = UniswapFactory.load(FACTORY_ADDRESS) // 加载 UniswapFactory entity
 
   // reset factory liquidity by subtracting onluy tarcked liquidity
+  // 通过仅减去跟踪的流动性来重置工厂流动性
   uniswap.totalLiquidityETH = uniswap.totalLiquidityETH.minus(pair.trackedReserveETH as BigDecimal)
 
   // reset token total liquidity amounts
+  // 重置token总流动性数量。
   token0.totalLiquidity = token0.totalLiquidity.minus(pair.reserve0)
   token1.totalLiquidity = token1.totalLiquidity.minus(pair.reserve1)
 
+  // 用最新的Sync event里的reserve0,reserve1给pair赋值，即更新pair的reserve
   pair.reserve0 = convertTokenToDecimal(event.params.reserve0, token0.decimals)
   pair.reserve1 = convertTokenToDecimal(event.params.reserve1, token1.decimals)
 
+  // 如果最新的reserve1不为0,则计算token0Price，就覆盖了之前的值；如果为0,则token0Price置为0
   if (pair.reserve1.notEqual(ZERO_BD)) pair.token0Price = pair.reserve0.div(pair.reserve1)
   else pair.token0Price = ZERO_BD
+  // 如果最新的reserve0不为0,则计算token1Price，就覆盖了之前的值；如果为0,则token1Price置为0
   if (pair.reserve0.notEqual(ZERO_BD)) pair.token1Price = pair.reserve1.div(pair.reserve0)
   else pair.token1Price = ZERO_BD
 
-  pair.save()
+  pair.save() // 持久化
 
   // update ETH price now that reserves could have changed
+  // 更新ETH价格，现在储备可能已经改变
   let bundle = Bundle.load('1')
+  // 返回daiPair,usdcPair,usdtPair中ETH价格的平均值，如果pair都不存在，返回0
   bundle.ethPrice = getEthPriceInUSD()
   bundle.save()
 
+  // 通过graph搜索每个token的衍生Eth，即每个token值多少ETH，机制就是通过白名单token的pair来获取。
+  // 找到一个token0值多少ETH
   token0.derivedETH = findEthPerToken(token0 as Token)
+  // 找到一个token1值多少ETH
   token1.derivedETH = findEthPerToken(token1 as Token)
+  // 持久化
   token0.save()
   token1.save()
 
   // get tracked liquidity - will be 0 if neither is in whitelist
+  // 获得跟踪流动性-如果两者都不在白名单中，将为0
   let trackedLiquidityETH: BigDecimal
+  // 如果ETH price不为0
   if (bundle.ethPrice.notEqual(ZERO_BD)) {
+    // 接受tokens和金额，根据token白名单返回对应的USD金额，然后再除以ETH价格，就得到了pair reserve0和reserve1总共值多少ETH
     trackedLiquidityETH = getTrackedLiquidityUSD(pair.reserve0, token0 as Token, pair.reserve1, token1 as Token).div(
       bundle.ethPrice
     )
   } else {
+    // 如果ETH price为0,则返回0
     trackedLiquidityETH = ZERO_BD
   }
 
   // use derived amounts within pair
+  // 注意：trackedReserveETH和reserveETH都代表pair里的reserve值多少ETH，但计算方式不同，trackedReserveETH是先计算USD价值，然后再转换为ETH价值
   pair.trackedReserveETH = trackedLiquidityETH
   pair.reserveETH = pair.reserve0
     .times(token0.derivedETH as BigDecimal)
@@ -311,14 +328,17 @@ export function handleSync(event: Sync): void {
   pair.reserveUSD = pair.reserveETH.times(bundle.ethPrice)
 
   // use tracked amounts globally
+  // 更新整个uniswap所有的pair总共的reserve分别值多少ETH和多少USD，即更新uniswap整体的锁仓量TVL
   uniswap.totalLiquidityETH = uniswap.totalLiquidityETH.plus(trackedLiquidityETH)
   uniswap.totalLiquidityUSD = uniswap.totalLiquidityETH.times(bundle.ethPrice)
 
   // now correctly set liquidity amounts for each token
+  // 更新每种token在整个uniswap中的流动性金额
   token0.totalLiquidity = token0.totalLiquidity.plus(pair.reserve0)
   token1.totalLiquidity = token1.totalLiquidity.plus(pair.reserve1)
 
   // save entities
+  // 持久化
   pair.save()
   uniswap.save()
   token0.save()
@@ -327,7 +347,7 @@ export function handleSync(event: Sync): void {
 
 // 处理Mint(indexed address,uint256,uint256)
 // - 基于交易hash加载已经在handleTransfer里创建的Transaction entity
-export function handleMint(event: Mint): void {//TODO
+export function handleMint(event: Mint): void {
   // 在调用pair的mint方法的时候，会调用_mint(to, liquidity)，然后emit Transfer(address(0), to, value);
   // 在emit Transfer之后，才会emit Mint(msg.sender, amount0, amount1);
   // 所以，Transfer在前，Mint在后，都发生在一笔交易里
@@ -386,7 +406,7 @@ export function handleMint(event: Mint): void {//TODO
   // update the LP position
   // 创建一个LiquidityPosition，键为“Pair地址-User地址”，如果已经存在，就直接返回已经存在的LiquidityPosition
   let liquidityPosition = createLiquidityPosition(event.address, mint.to as Address)
-  createLiquiditySnapshot(liquidityPosition, event)//TODO
+  createLiquiditySnapshot(liquidityPosition, event)
 
   // update day entities
   updatePairDayData(event)
@@ -396,6 +416,7 @@ export function handleMint(event: Mint): void {//TODO
   updateTokenDayData(token1 as Token, event)
 }
 
+// 处理 event Burn(address indexed sender, uint amount0, uint amount1, address indexed to);
 export function handleBurn(event: Burn): void {
   let transaction = Transaction.load(event.transaction.hash.toHexString())
 
@@ -404,23 +425,29 @@ export function handleBurn(event: Burn): void {
     return
   }
 
+  // 取出交易entity中保存的最后一个burn，然后加载BurnEvent entity
   let burns = transaction.burns
   let burn = BurnEvent.load(burns[burns.length - 1])
 
+  // 根据pair地址加载 Pair entity
   let pair = Pair.load(event.address.toHex())
+  // 加载全局 UniswapFactory entity
   let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
 
   //update token info
+  // 更新token信息
   let token0 = Token.load(pair.token0)
   let token1 = Token.load(pair.token1)
   let token0Amount = convertTokenToDecimal(event.params.amount0, token0.decimals)
   let token1Amount = convertTokenToDecimal(event.params.amount1, token1.decimals)
 
   // update txn counts
+  // token0和token1的交易数量递增1
   token0.txCount = token0.txCount.plus(ONE_BI)
   token1.txCount = token1.txCount.plus(ONE_BI)
 
   // get new amounts of USD and ETH for tracking
+  // 获取本次Burn的token0和token1值多少USD
   let bundle = Bundle.load('1')
   let amountTotalUSD = token1.derivedETH
     .times(token1Amount)
@@ -428,6 +455,7 @@ export function handleBurn(event: Burn): void {
     .times(bundle.ethPrice)
 
   // update txn counts
+  // 更新全局交易数量和pair交易数量
   uniswap.txCount = uniswap.txCount.plus(ONE_BI)
   pair.txCount = pair.txCount.plus(ONE_BI)
 
@@ -447,10 +475,13 @@ export function handleBurn(event: Burn): void {
   burn.save()
 
   // update the LP position
+  // 由于进行了移除流动性操作，所以LP的position就减少了，进行更新
   let liquidityPosition = createLiquidityPosition(event.address, burn.sender as Address)
+  // 创建该LP的流动性快照
   createLiquiditySnapshot(liquidityPosition, event)
 
   // update day entities
+  // 更新 day entities
   updatePairDayData(event)
   updatePairHourData(event)
   updateUniswapDayData(event)
@@ -458,10 +489,21 @@ export function handleBurn(event: Burn): void {
   updateTokenDayData(token1 as Token, event)
 }
 
+/*
+处理
+    event Swap(
+        address indexed sender,
+        uint amount0In,
+        uint amount1In,
+        uint amount0Out,
+        uint amount1Out,
+        address indexed to
+    );
+*/
 export function handleSwap(event: Swap): void {
-  let pair = Pair.load(event.address.toHexString())
-  let token0 = Token.load(pair.token0)
-  let token1 = Token.load(pair.token1)
+  let pair = Pair.load(event.address.toHexString()) // 加载 Pair entity
+  let token0 = Token.load(pair.token0) // 加载 token0 entity
+  let token1 = Token.load(pair.token1) // 加载 token1 entity
   let amount0In = convertTokenToDecimal(event.params.amount0In, token0.decimals)
   let amount1In = convertTokenToDecimal(event.params.amount1In, token1.decimals)
   let amount0Out = convertTokenToDecimal(event.params.amount0Out, token0.decimals)
@@ -472,28 +514,39 @@ export function handleSwap(event: Swap): void {
   let amount1Total = amount1Out.plus(amount1In)
 
   // ETH/USD prices
+  // 得到ETH价格
   let bundle = Bundle.load('1')
 
   // get total amounts of derived USD and ETH for tracking
+  // 获得衍生的USD和ETH的总金额进行跟踪，这里是跟踪交易量，因为swap就会产生volume
+  // (amountIn对应的ETH+amountOut对应的ETH)/2，即取平均值，然后再乘以USD，得到本次swap交易的交易量，以USD计价
   let derivedAmountETH = token1.derivedETH
     .times(amount1Total)
     .plus(token0.derivedETH.times(amount0Total))
     .div(BigDecimal.fromString('2'))
+  // 衍生的ETH数量 * ETH的价格 = 衍生的USD数量
   let derivedAmountUSD = derivedAmountETH.times(bundle.ethPrice)
 
   // only accounts for volume through white listed tokens
+  // 仅通过白名单tokens来计算本次swap的交易量（以USD计价）
+  // 接受tokens和amounts，根据代币白名单返回跟踪交易量金额，以USD计价
   let trackedAmountUSD = getTrackedVolumeUSD(amount0Total, token0 as Token, amount1Total, token1 as Token, pair as Pair)
 
   let trackedAmountETH: BigDecimal
   if (bundle.ethPrice.equals(ZERO_BD)) {
     trackedAmountETH = ZERO_BD
   } else {
+    // 得到本次swap的交易量（以ETH计价）
     trackedAmountETH = trackedAmountUSD.div(bundle.ethPrice)
   }
 
   // update token0 global volume and token liquidity stats
+  // 更新token0全局交易量和token流动性统计数据
+  // 更新token0的交易量
   token0.tradeVolume = token0.tradeVolume.plus(amount0In.plus(amount0Out))
+  // 更新token0的交易量，以USD计价
   token0.tradeVolumeUSD = token0.tradeVolumeUSD.plus(trackedAmountUSD)
+  // 更新token0的未跟踪交易量，以USD计价
   token0.untrackedVolumeUSD = token0.untrackedVolumeUSD.plus(derivedAmountUSD)
 
   // update token1 global volume and token liquidity stats
@@ -502,31 +555,48 @@ export function handleSwap(event: Swap): void {
   token1.untrackedVolumeUSD = token1.untrackedVolumeUSD.plus(derivedAmountUSD)
 
   // update txn counts
+  // token0和token1的交易数量递增1
   token0.txCount = token0.txCount.plus(ONE_BI)
   token1.txCount = token1.txCount.plus(ONE_BI)
 
   // update pair volume data, use tracked amount if we have it as its probably more accurate
+  // 更新pair交易量数据，如果我们有跟踪交易量，则使用跟踪交易量，因为它可能更准确
+  // 更新pair跟踪交易量，以USD计价
   pair.volumeUSD = pair.volumeUSD.plus(trackedAmountUSD)
+  // 更新pair的token0交易量
   pair.volumeToken0 = pair.volumeToken0.plus(amount0Total)
+  // 更新pair的token1交易量
   pair.volumeToken1 = pair.volumeToken1.plus(amount1Total)
+  // 更新pair的未跟踪交易量，以USD计价
   pair.untrackedVolumeUSD = pair.untrackedVolumeUSD.plus(derivedAmountUSD)
+  // 更新pair的swap交易数量，递增1
   pair.txCount = pair.txCount.plus(ONE_BI)
+  // 持久化
   pair.save()
 
   // update global values, only used tracked amounts for volume
+  // 更新全局值，只使用跟踪量的交易量
+  // 加载 UniswapFactory，就代表uniswap全局
   let uniswap = UniswapFactory.load(FACTORY_ADDRESS)
+  // 更新全局跟踪交易量，以USD计价
   uniswap.totalVolumeUSD = uniswap.totalVolumeUSD.plus(trackedAmountUSD)
+  // 更新全局跟踪交易量，以ETH计价
   uniswap.totalVolumeETH = uniswap.totalVolumeETH.plus(trackedAmountETH)
+  // 更新全局未跟踪交易量，以USD计价
   uniswap.untrackedVolumeUSD = uniswap.untrackedVolumeUSD.plus(derivedAmountUSD)
+  // 全局交易数量递增1
   uniswap.txCount = uniswap.txCount.plus(ONE_BI)
 
   // save entities
+  // 持久化
   pair.save()
   token0.save()
   token1.save()
   uniswap.save()
 
+  // 根据交易哈希加载 Transaction entity
   let transaction = Transaction.load(event.transaction.hash.toHexString())
+  // 如果 Transaction entity还不存在，就新建一个，只更新区块号和时间戳
   if (transaction === null) {
     transaction = new Transaction(event.transaction.hash.toHexString())
     transaction.blockNumber = event.block.number
@@ -535,7 +605,9 @@ export function handleSwap(event: Swap): void {
     transaction.swaps = []
     transaction.burns = []
   }
+  // 取出 Transaction entity的swaps，有可能为空
   let swaps = transaction.swaps
+  // 为当前这个Swap事件创建一个 SwapEvent entity，id为交易哈希+index
   let swap = new SwapEvent(
     event.transaction.hash
       .toHexString()
@@ -544,23 +616,26 @@ export function handleSwap(event: Swap): void {
   )
 
   // update swap event
+  swap.transaction = transaction.id // 交易哈希
+  swap.pair = pair.id // pair合约地址
+  swap.timestamp = transaction.timestamp // 时间戳
   swap.transaction = transaction.id
-  swap.pair = pair.id
-  swap.timestamp = transaction.timestamp
-  swap.transaction = transaction.id
-  swap.sender = event.params.sender
+  swap.sender = event.params.sender // swap交易发起者
   swap.amount0In = amount0In
   swap.amount1In = amount1In
   swap.amount0Out = amount0Out
   swap.amount1Out = amount1Out
-  swap.to = event.params.to
-  swap.from = event.transaction.from
-  swap.logIndex = event.logIndex
+  swap.to = event.params.to // 交换的代币发给谁
+  swap.from = event.transaction.from // 交易发起者
+  swap.logIndex = event.logIndex // log index
   // use the tracked amount if we have it
+  // 本笔swap交易的金额，以USD计价
   swap.amountUSD = trackedAmountUSD === ZERO_BD ? derivedAmountUSD : trackedAmountUSD
+  // 持久化
   swap.save()
 
   // update the transaction
+  // 更新交易
 
   // TODO: Consider using .concat() for handling array updates to protect
   // against unintended side effects for other code paths.
@@ -569,31 +644,39 @@ export function handleSwap(event: Swap): void {
   transaction.save()
 
   // update day entities
+  // 更新day entity
   let pairDayData = updatePairDayData(event)
+  // 更新pair entity
   let pairHourData = updatePairHourData(event)
+  // 更新uniswap全局日数据
   let uniswapDayData = updateUniswapDayData(event)
+  // 更新token日数据
   let token0DayData = updateTokenDayData(token0 as Token, event)
   let token1DayData = updateTokenDayData(token1 as Token, event)
 
   // swap specific updating
+  // Swap特定的更新，日交易量
   uniswapDayData.dailyVolumeUSD = uniswapDayData.dailyVolumeUSD.plus(trackedAmountUSD)
   uniswapDayData.dailyVolumeETH = uniswapDayData.dailyVolumeETH.plus(trackedAmountETH)
   uniswapDayData.dailyVolumeUntracked = uniswapDayData.dailyVolumeUntracked.plus(derivedAmountUSD)
   uniswapDayData.save()
 
   // swap specific updating for pair
+  // pair的token0,token1日交易量，以及以USD计价的交易量
   pairDayData.dailyVolumeToken0 = pairDayData.dailyVolumeToken0.plus(amount0Total)
   pairDayData.dailyVolumeToken1 = pairDayData.dailyVolumeToken1.plus(amount1Total)
   pairDayData.dailyVolumeUSD = pairDayData.dailyVolumeUSD.plus(trackedAmountUSD)
   pairDayData.save()
 
   // update hourly pair data
+  // pair的token0,token1小时交易量，以及以USD计价的交易量
   pairHourData.hourlyVolumeToken0 = pairHourData.hourlyVolumeToken0.plus(amount0Total)
   pairHourData.hourlyVolumeToken1 = pairHourData.hourlyVolumeToken1.plus(amount1Total)
   pairHourData.hourlyVolumeUSD = pairHourData.hourlyVolumeUSD.plus(trackedAmountUSD)
   pairHourData.save()
 
   // swap specific updating for token0
+  // token0的日交易量
   token0DayData.dailyVolumeToken = token0DayData.dailyVolumeToken.plus(amount0Total)
   token0DayData.dailyVolumeETH = token0DayData.dailyVolumeETH.plus(amount0Total.times(token0.derivedETH as BigDecimal))
   token0DayData.dailyVolumeUSD = token0DayData.dailyVolumeUSD.plus(
@@ -602,6 +685,7 @@ export function handleSwap(event: Swap): void {
   token0DayData.save()
 
   // swap specific updating
+  // token1的日交易量
   token1DayData.dailyVolumeToken = token1DayData.dailyVolumeToken.plus(amount1Total)
   token1DayData.dailyVolumeETH = token1DayData.dailyVolumeETH.plus(amount1Total.times(token1.derivedETH as BigDecimal))
   token1DayData.dailyVolumeUSD = token1DayData.dailyVolumeUSD.plus(

@@ -8,32 +8,44 @@ const USDC_WETH_PAIR = '0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc' // created 1
 const DAI_WETH_PAIR = '0xa478c2975ab1ea89e8196811f51a7b7ade33eb11' // created block 10042267
 const USDT_WETH_PAIR = '0x0d4a11d5eeaac28ec3f61d100daf4d40471f1852' // created block 10093341
 
+// 返回daiPair,usdcPair,usdtPair中ETH价格的平均值，如果pair都不存在，返回0
 export function getEthPriceInUSD(): BigDecimal {
   // fetch eth prices for each stablecoin
+  // 获取每种稳定币的eth价格
   let daiPair = Pair.load(DAI_WETH_PAIR) // dai is token0
   let usdcPair = Pair.load(USDC_WETH_PAIR) // usdc is token0
   let usdtPair = Pair.load(USDT_WETH_PAIR) // usdt is token1
 
   // all 3 have been created
+  // 如果三种稳定币都已经被创建了
   if (daiPair !== null && usdcPair !== null && usdtPair !== null) {
+    // 三个pair中的ETH reserve相加
     let totalLiquidityETH = daiPair.reserve1.plus(usdcPair.reserve1).plus(usdtPair.reserve0)
+    // 计算DAI pair中ETH占总的ETH的比例
     let daiWeight = daiPair.reserve1.div(totalLiquidityETH)
+    // 计算USDC pair中ETH占总的ETH的比例
     let usdcWeight = usdcPair.reserve1.div(totalLiquidityETH)
+    // 计算USDT pair中ETH占总的ETH的比例
     let usdtWeight = usdtPair.reserve0.div(totalLiquidityETH)
+    // ETH的价格按比例相加
+    // 注意，以DAI pair为例，dai为token0，ETH为token1，但token0Price是指的ETH的价格
     return daiPair.token0Price
       .times(daiWeight)
       .plus(usdcPair.token0Price.times(usdcWeight))
       .plus(usdtPair.token1Price.times(usdtWeight))
     // dai and USDC have been created
+    // DAI pair和USDC pair已经被创建了
   } else if (daiPair !== null && usdcPair !== null) {
     let totalLiquidityETH = daiPair.reserve1.plus(usdcPair.reserve1)
     let daiWeight = daiPair.reserve1.div(totalLiquidityETH)
     let usdcWeight = usdcPair.reserve1.div(totalLiquidityETH)
     return daiPair.token0Price.times(daiWeight).plus(usdcPair.token0Price.times(usdcWeight))
     // USDC is the only pair so far
+    // 只有USDC pair已经被创建了
   } else if (usdcPair !== null) {
     return usdcPair.token0Price
   } else {
+    // 返回0
     return ZERO_BD
   }
 }
@@ -63,6 +75,7 @@ let WHITELIST: string[] = [
 ]
 
 // minimum liquidity required to count towards tracked volume for pairs with small # of Lps
+// pair中的reserve至少要值40万USD，其swap才会被算到跟踪交易量中
 let MINIMUM_USD_THRESHOLD_NEW_PAIRS = BigDecimal.fromString('400000')
 
 // minimum liquidity for price to get tracked
@@ -72,25 +85,35 @@ let MINIMUM_LIQUIDITY_THRESHOLD_ETH = BigDecimal.fromString('2')
  * Search through graph to find derived Eth per token.
  * @todo update to be derived ETH (add stablecoin estimates)
  **/
+// 通过graph搜索每个token的衍生Eth，即每个token值多少ETH，机制就是通过白名单token的pair来获取。
+// 更新衍生ETH(添加稳定币估算)
 export function findEthPerToken(token: Token): BigDecimal {
+  // 如果是WETH，返回1
   if (token.id == WETH_ADDRESS) {
     return ONE_BD
   }
   // loop through whitelist and check if paired with any
+  // 对白名单里的token进行轮循
   for (let i = 0; i < WHITELIST.length; ++i) {
+    // 获取和白名单token进行配对的pair地址，如果不存在，则会返回0地址
     let pairAddress = factoryContract.getPair(Address.fromString(token.id), Address.fromString(WHITELIST[i]))
+    // 如果pair存在
     if (pairAddress.toHexString() != ADDRESS_ZERO) {
+      // 加载Pair entity
       let pair = Pair.load(pairAddress.toHexString())
       if (pair.token0 == token.id && pair.reserveETH.gt(MINIMUM_LIQUIDITY_THRESHOLD_ETH)) {
         let token1 = Token.load(pair.token1)
+        // 如果token是token0,那么pair中token0的价格（以token1计价），再乘以token1的ETH价格，就得到了token0的ETH价格
         return pair.token1Price.times(token1.derivedETH as BigDecimal) // return token1 per our token * Eth per token 1
       }
       if (pair.token1 == token.id && pair.reserveETH.gt(MINIMUM_LIQUIDITY_THRESHOLD_ETH)) {
         let token0 = Token.load(pair.token0)
+        // 如果token是token1,那么pair中token1的价格（以token0计价），再乘以token0的ETH价格，就得到了token1的ETH价格
         return pair.token0Price.times(token0.derivedETH as BigDecimal) // return token0 per our token * ETH per token 0
       }
     }
   }
+  // 如果没有和白名单的token进行配对，则返回0
   return ZERO_BD // nothing was found return 0
 }
 
@@ -100,6 +123,12 @@ export function findEthPerToken(token: Token): BigDecimal {
  * If both are, return average of two amounts
  * If neither is, return 0
  */
+/**
+ *接受tokens和amounts，根据代币白名单返回跟踪交易量金额，以USD计价
+ *如果有一个token在白名单上，则返回该token中转换为美元的金额。
+ *如果两者都是，则返回两个金额的平均值
+ *如果都不是，则返回0
+*/
 export function getTrackedVolumeUSD(
   tokenAmount0: BigDecimal,
   token0: Token,
@@ -107,19 +136,25 @@ export function getTrackedVolumeUSD(
   token1: Token,
   pair: Pair
 ): BigDecimal {
+  // 得到token0和token1的USD价格
   let bundle = Bundle.load('1')
   let price0 = token0.derivedETH.times(bundle.ethPrice)
   let price1 = token1.derivedETH.times(bundle.ethPrice)
 
   // dont count tracked volume on these pairs - usually rebass tokens
+  // UNTRACKED_PAIRS是写死的配置
   if (UNTRACKED_PAIRS.includes(pair.id)) {
     return ZERO_BD
   }
 
   // if less than 5 LPs, require high minimum reserve amount amount or return 0
+  // 如果pair少于5个lp，要求high minimum reserve amount或返回0
   if (pair.liquidityProviderCount.lt(BigInt.fromI32(5))) {
+    // 得到reserve0和reserve1对应的USD金额
     let reserve0USD = pair.reserve0.times(price0)
     let reserve1USD = pair.reserve1.times(price1)
+    // token0和token1都在白名单里
+    // pair中的reserve至少要值40万USD，其swap才会被算到跟踪交易量中，否则返回0
     if (WHITELIST.includes(token0.id) && WHITELIST.includes(token1.id)) {
       if (reserve0USD.plus(reserve1USD).lt(MINIMUM_USD_THRESHOLD_NEW_PAIRS)) {
         return ZERO_BD
@@ -137,6 +172,7 @@ export function getTrackedVolumeUSD(
     }
   }
 
+  // 以下计算本次swap的交易量，以USD计价
   // both are whitelist tokens, take average of both amounts
   if (WHITELIST.includes(token0.id) && WHITELIST.includes(token1.id)) {
     return tokenAmount0
@@ -156,6 +192,7 @@ export function getTrackedVolumeUSD(
   }
 
   // neither token is on white list, tracked volume is 0
+  // token都不在白名单中，跟踪交易量返回0
   return ZERO_BD
 }
 
@@ -165,12 +202,17 @@ export function getTrackedVolumeUSD(
  * If both are, return sum of two amounts
  * If neither is, return 0
  */
+ // 接受tokens和金额，根据token白名单返回对应的USD金额
+ // 如果有一个token在白名单上，返回该token中的金额转换为USD * 2
+ // 如果两者都在白名单上，则返回两个金额的总和
+ // 如果都不在白名单上，则返回0
 export function getTrackedLiquidityUSD(
   tokenAmount0: BigDecimal,
   token0: Token,
   tokenAmount1: BigDecimal,
   token1: Token
 ): BigDecimal {
+  // 计算token0和token1的价格，以USD计价
   let bundle = Bundle.load('1')
   let price0 = token0.derivedETH.times(bundle.ethPrice)
   let price1 = token1.derivedETH.times(bundle.ethPrice)
